@@ -1,11 +1,17 @@
 name: Run Tests
-on: workflow_dispatch
+
+on:
+  workflow_dispatch:
+
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-     - uses: actions/checkout@v3
-     - name: Install dependencies
-     run: npm install
-     - name: Run Tests
-     run: npm test
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Tests
+        run: npm test
