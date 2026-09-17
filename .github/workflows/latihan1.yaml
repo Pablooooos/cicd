@@ -10,8 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install dependencies
-        run: sudo npm install
+      - name: Install update
+        run: sudo apt update -y 
 
-      - name: Run Tests
-        run: npm test
+      - name: install nginx
+        run: sudo apt install nginx -y
+
+      - name: Test landing page nginx
+        run: curl localhost
