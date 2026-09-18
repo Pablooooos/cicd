@@ -8,7 +8,7 @@ on:
       nama_siswa:
         description: 'Wisnuu'
         required: true
-        default: 'Siswa TJKT'
+        default: 'Wisnuu'
 
 jobs:
   test:
