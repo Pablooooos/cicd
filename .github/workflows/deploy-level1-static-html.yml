@@ -26,14 +26,14 @@ jobs:
 
       - name: Siapkan SSH config (ProxyCommand via Cloudflare Access)
         env:
-          CF_ACCESS_HOSTNAME: ${{ secrets.CF_ACCESS_HOSTNAME }}
+          CF_ACCESS_HOSTNAME: ${{ secrets.URL_VM }}
         run: |
           mkdir -p ~/.ssh
           # Menggunakan tanda kutip 'EOC' agar teks di dalamnya ditulis mentah-mentah (raw) tanpa gangguan interpretasi shell
           cat >> ~/.ssh/config << 'EOC'
           Host vm-a
-            HostName ${{ secrets.CF_ACCESS_HOSTNAME }}
-            User ${{ secrets.VPS_USERNAME }}
+            HostName ${{ secrets.URL_VM }}
+            User ${{ secrets.USER_VPS }}
             ProxyCommand cloudflared access ssh --hostname %h
             StrictHostKeyChecking no
             UserKnownHostsFile=/dev/null
@@ -44,7 +44,7 @@ jobs:
       # =========================================================================
       - name: Deploy file statis ke VM-A
         env:
-          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          SSHPASS: ${{ secrets.PASS_VPS }}
         run: |
           # 1. Hapus file bawaan Nginx dan ubah kepemilikan folder /var/www/html agar bisa diisi file baru
           sshpass -e ssh -o StrictHostKeyChecking=no vm-a "
