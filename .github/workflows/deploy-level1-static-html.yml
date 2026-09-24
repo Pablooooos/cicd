@@ -5,163 +5,61 @@ on:
     branches: [ main ]
     paths:
       - 'skenario1-github-actions-vps-proxycommand/level1-static-html/app/**'
-
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   deploy:
     name: Deploy static site ke VM-A
     runs-on: ubuntu-latest
-
     steps:
-
-      # ============================================================
-      # 1. CHECKOUT
-      # ============================================================
       - name: Checkout kode
         uses: actions/checkout@v4
 
-
-      # ============================================================
-      # 2. INSTALL CLOUDFLARED
-      # ============================================================
       - name: Install cloudflared
         run: |
-          curl -L \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
-            -o cloudflared.deb
-
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
-
-          echo "Cloudflared version:"
           cloudflared --version
 
-
-      # ============================================================
-      # 3. INSTALL SSHPASS
-      # ============================================================
       - name: Install sshpass
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y sshpass
+        run: sudo apt-get update -y && sudo apt-get install -y sshpass
 
-
-      # ============================================================
-      # 4. SETUP SSH + CLOUDFLARE ACCESS SERVICE TOKEN
-      # ============================================================
-      - name: Siapkan SSH config
+      - name: Siapkan SSH config (ProxyCommand via Cloudflare Access)
         env:
           CF_ACCESS_HOSTNAME: ${{ secrets.CF_ACCESS_HOSTNAME }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
         run: |
-
           mkdir -p ~/.ssh
-
-          chmod 700 ~/.ssh
-
-          cat > ~/.ssh/config << EOF
+          # Menggunakan tanda kutip 'EOC' agar teks di dalamnya ditulis mentah-mentah (raw) tanpa gangguan interpretasi shell
+          cat >> ~/.ssh/config << 'EOC'
           Host vm-a
-            HostName ${CF_ACCESS_HOSTNAME}
-            User ${VPS_USERNAME}
-            ProxyCommand cloudflared access ssh --hostname %h --service-token-id ${CF_ACCESS_CLIENT_ID} --service-token-secret ${CF_ACCESS_CLIENT_SECRET}
+            HostName ${{ secrets.CF_ACCESS_HOSTNAME }}
+            User ${{ secrets.VPS_USERNAME }}
+            ProxyCommand cloudflared access ssh --hostname %h
             StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-            ServerAliveInterval 30
-            ServerAliveCountMax 3
-          EOF
+            UserKnownHostsFile=/dev/null
+          EOC
 
-          chmod 600 ~/.ssh/config
-
-          echo "SSH config berhasil dibuat."
-
-          echo "Cloudflare hostname:"
-          echo "${CF_ACCESS_HOSTNAME}"
-
-          echo "SSH username:"
-          echo "${VPS_USERNAME}"
-
-
-      # ============================================================
-      # 5. TEST CONNECTION
-      # ============================================================
-      - name: Test koneksi SSH ke VM-A
-        run: |
-          echo "Testing koneksi ke VM-A..."
-
-          ssh \
-            -o ConnectTimeout=30 \
-            -o StrictHostKeyChecking=no \
-            vm-a "echo 'SSH BERHASIL - TERHUBUNG KE VM-A'"
-
-
-      # ============================================================
-      # 6. PREPARE NGINX DIRECTORY
-      # ============================================================
-      - name: Siapkan folder Nginx di VM-A
+      # =========================================================================
+      # 🌟 PERUBAHAN UTAMA: Target folder dipindah ke /var/www/html & hapus file bawaan
+      # =========================================================================
+      - name: Deploy file statis ke VM-A
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
         run: |
-
-          sshpass -e ssh \
-            -o StrictHostKeyChecking=no \
-            vm-a "
-              echo '${SSHPASS}' | sudo -S rm -f /var/www/html/index.nginx-debian.html &&
-              echo '${SSHPASS}' | sudo -S chown -R \$USER:\$USER /var/www/html
-            "
-
-
-      # ============================================================
-      # 7. COPY WEBSITE
-      # ============================================================
-      - name: Deploy file statis ke VM-A
-        run: |
-
-          ssh \
-            -o StrictHostKeyChecking=no \
-            vm-a "
-              mkdir -p /var/www/html
-            "
-
-          scp \
-            -o StrictHostKeyChecking=no \
+          # 1. Hapus file bawaan Nginx dan ubah kepemilikan folder /var/www/html agar bisa diisi file baru
+          sshpass -e ssh -o StrictHostKeyChecking=no vm-a "
+            echo '${SSHPASS}' | sudo -S rm -f /var/www/html/index.nginx-debian.html && \
+            echo '${SSHPASS}' | sudo -S chown -R \$USER:\$USER /var/www/html
+          "
+          
+          # 2. Kirim file index.html dan style.css langsung ke folder /var/www/html/
+          sshpass -e scp -o StrictHostKeyChecking=no \
             skenario1-github-actions-vps-proxycommand/level1-static-html/app/index.html \
             skenario1-github-actions-vps-proxycommand/level1-static-html/app/style.css \
             vm-a:/var/www/html/
 
-
-      # ============================================================
-      # 8. RELOAD NGINX
-      # ============================================================
       - name: Reload Nginx di VM-A
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
         run: |
-
-          sshpass -e ssh \
-            -o StrictHostKeyChecking=no \
-            vm-a "
-              echo '${SSHPASS}' | sudo -S nginx -t &&
-              echo '${SSHPASS}' | sudo -S systemctl reload nginx
-            "
-
-          echo "Nginx berhasil direload."
-
-
-      # ============================================================
-      # 9. VERIFY WEBSITE
-      # ============================================================
-      - name: Verifikasi deployment
-        run: |
-
-          ssh \
-            -o StrictHostKeyChecking=no \
-            vm-a "
-              echo '===== FILE WEBSITE ====='
-              ls -lah /var/www/html/
-
-              echo ''
-              echo '===== NGINX STATUS ====='
-              systemctl is-active nginx
-            "
+          sshpass -e ssh -o StrictHostKeyChecking=no vm-a "echo '${SSHPASS}' | sudo -S systemctl reload nginx"
