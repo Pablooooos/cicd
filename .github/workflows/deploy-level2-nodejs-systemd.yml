@@ -1,11 +1,11 @@
 name: "Skenario 1 - Level 2 - Deploy Node.js (systemd)"
 
-# Trigger: push otomatis ATAU dijalankan manual (workflow_dispatch) dengan input
 on:
   push:
     branches: [ main ]
     paths:
       - 'skenario1-github-actions-vps-proxycommand/level2-nodejs-systemd/app/**'
+
   workflow_dispatch:
     inputs:
       restart_only:
@@ -18,43 +18,112 @@ jobs:
   deploy:
     name: Deploy Node.js app ke VM-A
     runs-on: ubuntu-latest
+
     steps:
+      # ==========================================
+      # 1. Checkout repository
+      # ==========================================
       - name: Checkout kode
         uses: actions/checkout@v4
 
+      # ==========================================
+      # 2. Install cloudflared dan sshpass
+      # ==========================================
       - name: Install cloudflared & sshpass
         run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
-          sudo dpkg -i cloudflared.deb
-          sudo apt-get update -y && sudo apt-get install -y sshpass
+          curl -L \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+            -o cloudflared.deb
 
-      - name: Siapkan SSH config (ProxyCommand Cloudflare Access, tanpa SSH key)
+          sudo dpkg -i cloudflared.deb
+
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      # ==========================================
+      # 3. Konfigurasi SSH
+      # ==========================================
+      - name: Siapkan SSH config
         env:
           URL_VM: ${{ secrets.URL_VM }}
+          USER_VPS: ${{ secrets.USER_VPS }}
         run: |
           mkdir -p ~/.ssh
-          cat >> ~/.ssh/config <<EOC
+          chmod 700 ~/.ssh
+
+          cat > ~/.ssh/config <<EOF
           Host vm-a
             HostName ${URL_VM}
-            User ${{ secrets.USER_VPS }}
+            User ${USER_VPS}
             ProxyCommand cloudflared access ssh --hostname %h
             StrictHostKeyChecking no
-            UserKnownHostsFile=/dev/null
-          EOC
+            UserKnownHostsFile /dev/null
+            PreferredAuthentications password
+            PubkeyAuthentication no
+          EOF
 
-      - name: Upload file aplikasi (skip jika restart_only = true)
-        if: ${{ github.event.inputs.restart_only != 'true' }}
+          chmod 600 ~/.ssh/config
+
+      # ==========================================
+      # 4. Test koneksi SSH
+      # ==========================================
+      - name: Test koneksi SSH
         env:
           SSHPASS: ${{ secrets.PASS_VPS }}
         run: |
-          ssh vm-a "sudo mkdir -p /opt/level2-node && sudo chown \$USER:\$USER /opt/level2-node"
-          sshpass -e scp -o StrictHostKeyChecking=no \
+          sshpass -e ssh vm-a "echo 'SSH berhasil terhubung ke VM-A'"
+
+      # ==========================================
+      # 5. Upload aplikasi
+      # ==========================================
+      - name: Upload file aplikasi
+        if: ${{ github.event_name == 'push' || github.event.inputs.restart_only != 'true' }}
+        env:
+          SSHPASS: ${{ secrets.PASS_VPS }}
+        run: |
+          sshpass -e ssh vm-a "
+            sudo mkdir -p /opt/level2-node &&
+            sudo chown \$USER:\$USER /opt/level2-node
+          "
+
+          sshpass -e scp \
             skenario1-github-actions-vps-proxycommand/level2-nodejs-systemd/app/server.js \
             skenario1-github-actions-vps-proxycommand/level2-nodejs-systemd/app/package.json \
             vm-a:/opt/level2-node/
 
+      # ==========================================
+      # 6. Install dependency Node.js
+      # ==========================================
+      - name: Install dependency Node.js
+        if: ${{ github.event_name == 'push' || github.event.inputs.restart_only != 'true' }}
+        env:
+          SSHPASS: ${{ secrets.PASS_VPS }}
+        run: |
+          sshpass -e ssh vm-a "
+            cd /opt/level2-node &&
+            npm install --production
+          "
+
+      # ==========================================
+      # 7. Restart systemd service
+      # ==========================================
       - name: Restart systemd service level2-node
         env:
           SSHPASS: ${{ secrets.PASS_VPS }}
         run: |
-          sshpass -e ssh vm-a "sudo systemctl restart level2-node && sudo systemctl status level2-node --no-pager"
+          sshpass -e ssh vm-a "
+            sudo systemctl daemon-reload &&
+            sudo systemctl restart level2-node &&
+            sudo systemctl enable level2-node
+          "
+
+      # ==========================================
+      # 8. Cek status service
+      # ==========================================
+      - name: Cek status service
+        env:
+          SSHPASS: ${{ secrets.PASS_VPS }}
+        run: |
+          sshpass -e ssh vm-a "
+            sudo systemctl status level2-node --no-pager
+          "
