@@ -6,12 +6,13 @@ on:
     tags:
       - 'v*'
   schedule:
-    - cron: '0 2 * * *'   # setiap hari jam 02:00 UTC
+    - cron: '0 2 * * *'
 
 jobs:
   deploy:
     name: Deploy Flask app ke VM-A
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout kode
         uses: actions/checkout@v4
@@ -29,17 +30,20 @@ jobs:
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
-          sudo apt-get update -y && sudo apt-get install -y sshpass
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
 
-      - name: Siapkan SSH config (ProxyCommand Cloudflare Access, tanpa SSH key)
+      - name: Siapkan SSH config Cloudflare Access
         env:
-          CF_ACCESS_HOSTNAME: ${{ secrets.CF_ACCESS_HOSTNAME }}
+          CF_ACCESS_HOSTNAME: ${{ secrets.URL_VM }}
+          VPS_USERNAME: ${{ secrets.USER_VPS }}
         run: |
           mkdir -p ~/.ssh
+
           cat >> ~/.ssh/config <<EOC
           Host vm-a
             HostName ${CF_ACCESS_HOSTNAME}
-            User ${{ secrets.VPS_USERNAME }}
+            User ${VPS_USERNAME}
             ProxyCommand cloudflared access ssh --hostname %h
             StrictHostKeyChecking no
             UserKnownHostsFile=/dev/null
@@ -47,17 +51,18 @@ jobs:
 
       - name: Upload kode Flask ke VM-A
         env:
-          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          SSHPASS: ${{ secrets.PASS_VPS }}
         run: |
           ssh vm-a "sudo mkdir -p /opt/level3-flask && sudo chown \$USER:\$USER /opt/level3-flask"
+
           sshpass -e scp -o StrictHostKeyChecking=no \
             skenario1-github-actions-vps-proxycommand/level3-python-flask-release/app/app.py \
             skenario1-github-actions-vps-proxycommand/level3-python-flask-release/app/requirements.txt \
             vm-a:/opt/level3-flask/
 
-      - name: Install dependency & set versi & restart service
+      - name: Install dependency, set versi & restart service
         env:
-          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          SSHPASS: ${{ secrets.PASS_VPS }}
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           sshpass -e ssh vm-a "
